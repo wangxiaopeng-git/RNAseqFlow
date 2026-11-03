@@ -1,0 +1,30 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[test]'
+      - run: python -m pytest -q
+  integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: envs/full.yaml
+          cache-environment: true
+      - run: python -m pip install -e .
+      - run: Rscript tests/integration/r_checks.R
+      - run: RNASEQFLOW_INTEGRATION=1 python -m pytest tests/integration -q
+      - run: python examples/pasilla/prepare.py --dest /tmp/pasilla
+      - run: rnaseqflow run -c /tmp/pasilla/config/config.yaml --cores 2 --jobs 1 --mem-mb 24000
+      - run: rnaseqflow verify --results /tmp/pasilla/results/analysis
+      - run: Rscript examples/pasilla/compare_reference.R /tmp/pasilla

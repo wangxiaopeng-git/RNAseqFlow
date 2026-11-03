@@ -14,6 +14,9 @@ analysis:
   design: "~ batch + condition"
   contrasts:
     - {name: treated_vs_control, factor: condition, numerator: treated, denominator: control}
+  # Explicit types avoid treating numeric-coded categories as continuous.
+  covariate_types: {condition: categorical, batch: categorical}
+  lfc_shrinkage: none  # none | normal; raw inference remains unchanged
   min_count: 10
   min_samples: 3
   fdr: 0.05

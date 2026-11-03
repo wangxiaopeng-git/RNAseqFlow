@@ -2,9 +2,19 @@
 
 **Modular bulk RNA-seq analysis from raw FASTQ, Salmon `quant.sf`, or a gene-count matrix.**
 
+## v0.2 reliability update
+
+This branch fixes ambiguous transcript mappings, WGCNA correlation lookup and missing-result reuse. It adds typed covariates, optional native DESeq2 normal LFC shrinkage, file-level SHA-256 provenance, `rnaseqflow verify`, and inline figures/contrast counts in the report. Original Wald statistics and DEG selection remain separate from shrunken estimates. Interaction contrasts are now rejected until a full coefficient interface exists.
+
+See [中文配置与边界](docs/RELIABILITY_zh.md) and the [real 0.5 MB pasilla example](examples/pasilla/README.md). Python-only tests and full R integration are separate CI jobs. Counts/intermediate has been exercised on real pasilla data with a direct DESeq2 numerical comparison; synthetic advanced tests exercise WGCNA. These checks do not validate real FASTQ/Salmon, real enrichment or biological network conclusions.
+
+```bash
+rnaseqflow verify --results /path/to/project/results/analysis
+```
+
 RNAseqFlow provides a unified command-line interface for RNA-seq processing, exploratory QC, differential expression, pathway analysis, and coexpression networks. It does **not** assume a human or mouse annotation database. Run local reference transcriptomes and custom gene-set files for non-model organisms.
 
-**Status: v0.1.0 development preview.** Python CLI/validation and synthetic-input tests have been exercised. R/Bioconductor execution, Snakemake DAGs, real sequencing data, and Conda environment resolution **must be verified on an RNA-seq-capable Linux installation before publication or production use**. No real scientific result has been validated by this release.
+**Status: v0.2.0 development preview.** Real counts/intermediate analysis and direct DESeq2 regression have been exercised on pasilla; synthetic R integration covers advanced/WGCNA. Real FASTQ/Salmon, annotation-matched enrichment and independent biological validation remain required before production use. See the validation scope above.
 
 ## Three levels
 

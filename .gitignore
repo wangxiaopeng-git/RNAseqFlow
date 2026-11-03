@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/
+.snakemake/
+results/
+work/
+*.fastq
+*.fastq.gz
+*.fq.gz
+*.bam
+*.cram
+pasilla_project/

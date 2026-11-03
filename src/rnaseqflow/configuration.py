@@ -6,6 +6,7 @@ parent directory (the project root). Absolute paths are also accepted.
 from __future__ import annotations
 
 import csv
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,8 @@ def read_samples(path: Path) -> list[dict[str, str]]:
             raise ConfigError("Sample sheet requires 'sample_id' header")
         if any(not x for x in reader.fieldnames):
             raise ConfigError("Sample sheet contains an empty column name")
+        if len(set(reader.fieldnames)) != len(reader.fieldnames):
+            raise ConfigError("Sample sheet contains duplicate column names")
         rows = list(reader)
     if not rows:
         raise ConfigError("Sample sheet has no samples")
@@ -105,7 +108,17 @@ def _check_tsv_map(path: Path) -> None:
         header = next(reader, None)
         if not header or header[:2] != ["transcript_id", "gene_id"]:
             raise ConfigError("tx2gene must have transcript_id and gene_id as its first two columns")
-        if not next(reader, None):
+        mappings = {}
+        for line, row in enumerate(reader, 2):
+            if len(row) != len(header) or any(not x.strip() for x in row[:2]):
+                raise ConfigError(f"Invalid tx2gene row {line}: empty ID or wrong column count")
+            transcript, gene = row[:2]
+            if transcript != transcript.strip() or gene != gene.strip():
+                raise ConfigError(f"Whitespace in tx2gene ID at row {line}")
+            if transcript in mappings and mappings[transcript] != gene:
+                raise ConfigError(f"Transcript {transcript} maps to conflicting genes")
+            mappings[transcript] = gene
+        if not mappings:
             raise ConfigError("tx2gene is empty")
 
 
@@ -173,6 +186,8 @@ def validate_config(config_path: str | Path, level_override: str | None = None) 
     if level in ("intermediate", "advanced"):
         cols = set(rows[0])
         design_cols = _design_columns(analysis.get("design", ""))
+        if any(term in analysis['design'] for term in ('*', ':')):
+            raise ConfigError("Interaction contrasts are not supported; use an additive design")
         if not design_cols <= cols:
             raise ConfigError(f"Design variables missing from samples.tsv: {sorted(design_cols - cols)}")
         for var in design_cols:
@@ -196,12 +211,45 @@ def validate_config(config_path: str | Path, level_override: str | None = None) 
                 replicates = sum(row[c["factor"]] == str(value) for row in rows)
                 if replicates < 2:
                     raise ConfigError(f"Contrast {c['name']} has fewer than 2 samples in group {value}")
-    for key in ("min_count", "min_samples"):
-        if analysis.get(key, 1) < 1:
-            raise ConfigError(f"{key} must be positive")
-    fdr = float(analysis.get("fdr", 0.05))
+    for key, default in (("min_count", 10), ("min_samples", 3), ("top_heatmap_genes", 30)):
+        value = analysis.setdefault(key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ConfigError(f"{key} must be a positive integer")
+    if analysis['min_samples'] > len(rows):
+        raise ConfigError("min_samples exceeds the number of samples")
+    try:
+        fdr = float(analysis.setdefault("fdr", 0.05))
+        log2fc = float(analysis.setdefault("log2fc", 1.0))
+    except (TypeError, ValueError):
+        raise ConfigError("fdr and log2fc must be numeric") from None
     if not 0 < fdr < 1:
         raise ConfigError("fdr must be between 0 and 1")
+    if not math.isfinite(log2fc) or log2fc < 0:
+        raise ConfigError("log2fc must be finite and nonnegative")
+    analysis['fdr'], analysis['log2fc'] = fdr, log2fc
+    if analysis.setdefault('lfc_shrinkage', 'none') not in ('none', 'normal'):
+        raise ConfigError("lfc_shrinkage must be none or normal")
+    types = analysis.setdefault('covariate_types', {})
+    if not isinstance(types, dict):
+        raise ConfigError("covariate_types must be a mapping")
+    for contrast in analysis.get('contrasts', []) if level != 'basic' else []:
+        factor = contrast['factor']
+        if types.get(factor, 'categorical') != 'categorical':
+            raise ConfigError(f"Contrast factor {factor} must be categorical")
+        types[factor] = 'categorical'
+        contrast['numerator'] = str(contrast['numerator'])
+        contrast['denominator'] = str(contrast['denominator'])
+    for name, kind in types.items():
+        if name not in rows[0] or kind not in ('categorical', 'numeric'):
+            raise ConfigError(f"Invalid covariate type for {name}")
+        if any(not row[name] for row in rows):
+            raise ConfigError(f"Missing covariate {name}")
+        if kind == 'numeric':
+            try:
+                if not all(math.isfinite(float(row[name])) for row in rows):
+                    raise ValueError()
+            except ValueError:
+                raise ConfigError(f"Numeric covariate {name} contains non-finite or nonnumeric values") from None
     gmt = project.get("gene_sets_gmt")
     if level != "basic" and analysis.get("enrichment", {}).get("enabled", False):
         if not gmt or not resolve(root, gmt).is_file():

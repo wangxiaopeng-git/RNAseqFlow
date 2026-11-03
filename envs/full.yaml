@@ -16,6 +16,7 @@ dependencies:
   - r-yaml
   - r-jsonlite
   - r-ggplot2
+  - r-svglite
   - r-pheatmap
   - r-wgcna
   - bioconductor-deseq2
