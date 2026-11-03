@@ -3,7 +3,11 @@
 args <- commandArgs(trailingOnly=TRUE)
 if (length(args) != 2) stop("Usage: Rscript run_analysis.R CONFIG.yaml OUTPUT_DIR")
 config_path <- normalizePath(args[1], mustWork=TRUE)
-out_dir <- args[2]
+output_target <- args[2]
+# All file inventories must describe this run, never conditional leftovers from
+# an earlier run. Stage in R's private temp directory; retain old, unreferenced
+# user outputs on disk instead of deleting the existing analysis directory.
+out_dir <- tempfile('rnaseqflow-analysis-')
 dir.create(out_dir, recursive=TRUE, showWarnings=FALSE)
 `%||%` <- function(a,b) if (is.null(a)) b else a
 cfg <- yaml::read_yaml(config_path)
@@ -27,7 +31,7 @@ if (level != 'basic' && grepl('[*:]', cfg$analysis$design)) stop('Interaction co
 
 if (mode == "counts") {
   tab <- read.delim(resolve_path(cfg$project$counts_matrix), check.names=FALSE,
-                    stringsAsFactors=FALSE)
+                    stringsAsFactors=FALSE, colClasses=c(gene_id='character'))
   if (anyDuplicated(tab$gene_id) || anyNA(tab$gene_id)) stop("Invalid gene IDs")
   count_data <- as.matrix(tab[, -1, drop=FALSE])
   rownames(count_data) <- tab$gene_id
@@ -263,4 +267,14 @@ summary_obj <- list(project=cfg$project$name %||% "RNAseqFlow", level=level,
                     samples=nrow(samples), genes_after_filter=nrow(dds), contrasts=contrast_summaries,
                     design=deparse(design), sections=sections)
 jsonlite::write_json(summary_obj, path=file.path(out_dir,"summary.json"), auto_unbox=TRUE, pretty=TRUE)
+generated <- list.files(out_dir, recursive=TRUE)
+# Copy the completion summary last. Snakemake's final provenance step then
+# verifies all referenced files before publishing its integrity manifest.
+generated <- c(setdiff(generated,'summary.json'),'summary.json')
+for (relative in generated) {
+  target <- file.path(output_target,relative)
+  dir.create(dirname(target),recursive=TRUE,showWarnings=FALSE)
+  if (!file.copy(file.path(out_dir,relative),target,overwrite=TRUE)) stop(paste('Cannot publish',relative))
+}
+unlink(out_dir,recursive=TRUE)
 message(sprintf("RNAseqFlow completed: %d samples; %d genes retained; level=%s",nrow(samples),nrow(dds),level))

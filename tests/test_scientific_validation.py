@@ -52,6 +52,16 @@ def test_contrast_types_normalized(project):
     assert validated['analysis']['covariate_types']['condition'] == 'categorical'
 
 
+def test_unquoted_numeric_contrast_levels(project):
+    cfg=yaml.safe_load(project.read_text())
+    sheet=project.parent.parent/'demo/samples.tsv'
+    sheet.write_text(sheet.read_text().replace('control','0').replace('treated','1'))
+    cfg['analysis']['contrasts'][0].update(numerator=1,denominator=0)
+    project.write_text(yaml.safe_dump(cfg))
+    validated,_,_=validate_config(project)
+    assert validated['analysis']['contrasts'][0]['denominator']=='0'
+
+
 def test_empty_duplicate_sample_columns_rejected(tmp_path):
     from rnaseqflow.configuration import read_samples
     sheet = tmp_path / 's.tsv'

@@ -22,19 +22,19 @@
 
 ### Task 1: Scientific validation and R execution
 Files: configuration.py, scripts/run_analysis.R, scripts/network.R, environments, config examples, Python and R tests.
-- [ ] Add failing regressions for ambiguous mappings, covariate types, interaction rejection and invalid thresholds; run pytest.
-- [ ] Implement validation; R explicit metadata types, independent map checks, WGCNA lookup fix, normal shrinkage and explicit RNG seeds.
-- [ ] Run full Python suite and actual R synthetic integration (original WGCNA failure must disappear). Commit.
+- [x] Add failing regressions for ambiguous mappings, covariate types, interaction rejection and invalid thresholds; run pytest.
+- [x] Implement validation; R explicit metadata types, independent map checks, WGCNA lookup fix, normal shrinkage and explicit RNG seeds.
+- [x] Run full Python suite and actual R synthetic integration (original WGCNA failure must disappear). Commit.
 
 ### Task 2: Integrity, provenance and report
 Files: new provenance.py, cli.py, workflow/Snakefile, build_report.py, tests.
 Interfaces: write_manifest(summary_path, config_path), verify_manifest(path) -> list[str]. Manifest contains SHA-256 output records, input records, configuration and versions.
-- [ ] Write failing missing/corrupt output and path safety/report tests; run them.
-- [ ] Track scripts and core outputs; write manifest after R; force analysis if output verification fails; CLI verify command.
-- [ ] Embed result plots and analysis metrics; include provenance links. Run full suite, deletion/corruption integration. Commit.
+- [x] Write failing missing/corrupt output and path safety/report tests; run them.
+- [x] Track scripts and core outputs; write manifest after R; force analysis if output verification fails; CLI verify command.
+- [x] Embed result plots and analysis metrics; include provenance links. Run full suite, deletion/corruption integration. Commit.
 
 ### Task 3: Reproducible example and delivery
 Files: examples/pasilla, tests/integration, CI, README, Chinese docs, PR description.
-- [ ] Add executable fixed-source pasilla preparation and independent DESeq2 comparison, mirror consistency check.
-- [ ] Run real counts, normal shrinkage, numeric factor/continuous covariate, advanced synthetic and wheel installation checks.
-- [ ] Document validation evidence and limitations; fresh whole-branch review, fix important findings with regressions. Commit and produce portable patch/bundle.
+- [x] Add executable fixed-source pasilla preparation and independent DESeq2 comparison, mirror consistency check.
+- [x] Run real counts, normal shrinkage, numeric factor/continuous covariate, advanced synthetic and wheel installation checks.
+- [x] Document validation evidence and limitations; fresh whole-branch review, fix important findings with regressions. Commit and produce portable patch/bundle.

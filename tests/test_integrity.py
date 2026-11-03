@@ -74,3 +74,17 @@ def test_report_rejects_path_traversal():
     from rnaseqflow.assets.scripts.build_report import render
     with pytest.raises(ValueError):
         render({'sections':[{'files':['../../secret.svg']}]})
+
+
+def test_report_encodes_literal_percent_in_hyperlink():
+    from rnaseqflow.assets.scripts.build_report import render
+    output=render({'sections':[{'files':['%2e%2e/outside.svg']}]})
+    assert 'href="../%252e%252e/outside.svg"' in output
+
+
+def test_report_checks_symlinks_under_actual_analysis_root(tmp_path):
+    from rnaseqflow.assets.scripts.build_report import render
+    out=tmp_path/'analysis';out.mkdir()
+    (out/'escape.svg').symlink_to(tmp_path/'outside.svg')
+    with pytest.raises(ValueError):
+        render({'sections':[{'files':['escape.svg']}]}, root=out)

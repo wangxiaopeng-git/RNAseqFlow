@@ -1,6 +1,6 @@
 """RNAseqFlow v0.1 Snakemake workflow. Use through `rnaseqflow run`."""
 import csv
-import shlex
+import rnaseqflow.provenance
 from pathlib import Path
 
 # Snakemake sets the working directory to the project root (CLI subprocess cwd).
@@ -22,6 +22,16 @@ RUN_CFG = str(Path("results/run_config.yaml").resolve())
 QC_REPORT = "results/qc/multiqc_report.html"
 ANALYSIS_DONE = "results/analysis/summary.json"
 HTML_REPORT = "results/analysis/report/index.html"
+CORE_FILES = ["summary.json", "provenance.json", "normalized_counts.tsv", "transformed_expression.tsv",
+              "size_factors.tsv", "sample_metadata.tsv", "sessionInfo.txt", "effective_config.yaml",
+              "qc/library_sizes.tsv", "qc/library_sizes.svg", "qc/sample_correlation.tsv"]
+if config["analysis"]["level"] != "basic":
+    for ct in config["analysis"]["contrasts"]:
+        for filename in ("deg_all.tsv", "deg_selected.tsv", "volcano.svg", "ma.svg"):
+            CORE_FILES.append("contrasts/" + ct["name"] + "/" + filename)
+        if config["analysis"].get("lfc_shrinkage") == "normal":
+            CORE_FILES.append("contrasts/" + ct["name"] + "/ma_shrunk.svg")
+ANALYSIS_OUTPUTS = ["results/analysis/" + name for name in CORE_FILES]
 
 
 def quant_paths():
@@ -33,7 +43,7 @@ def quant_paths():
 
 
 def target_dependencies():
-    return [HTML_REPORT] + ([QC_REPORT] if MODE == "fastq" else [])
+    return [HTML_REPORT] + ANALYSIS_OUTPUTS + ([QC_REPORT] if MODE == "fastq" else [])
 
 rule all:
     input: target_dependencies()
@@ -140,22 +150,30 @@ rule analyze:
     input:
         quant_paths(),
         cfg=RUN_CFG,
+        code=[str(ASSETS / "scripts" / name) for name in
+              ("run_analysis.R", "analysis_helpers.R", "network.R", "enrichment.R")] +
+             [rnaseqflow.provenance.__file__],
         samples=absolute(SHEET),
         annotations=([absolute(config["project"]["tx2gene"])] if MODE in ("salmon", "fastq") else []),
         pathways=([absolute(config["project"]["gene_sets_gmt"])] if config["project"].get("gene_sets_gmt") and
                   config["analysis"].get("level") != "basic" and
                   config["analysis"].get("enrichment", {}).get("enabled", False) else [])
-    output: ANALYSIS_DONE
+    output: ANALYSIS_OUTPUTS
     params:
         script=str(ASSETS / "scripts" / "run_analysis.R"),
         out="results/analysis",
         cfg=RUN_CFG
     resources: mem_mb=16000, concurrent_jobs=1
-    shell: "Rscript {params.script:q} {params.cfg:q} {params.out:q}"
+    shell:
+        "Rscript {params.script:q} {params.cfg:q} {params.out:q} && "
+        "python -m rnaseqflow.provenance --summary {params.out:q}/summary.json --config {params.cfg:q}"
 
 rule report:
-    input: ANALYSIS_DONE
+    input:
+        summary=ANALYSIS_DONE,
+        artifacts=ANALYSIS_OUTPUTS,
+        code=str(ASSETS / "scripts" / "build_report.py")
     output: HTML_REPORT
     params: script=str(ASSETS / "scripts" / "build_report.py"), cfg=RUN_CFG
     resources: mem_mb=500, concurrent_jobs=1
-    shell: "python {params.script:q} --summary {input:q} --output {output:q} --config {params.cfg:q}"
+    shell: "python {params.script:q} --summary {input.summary:q} --output {output:q} --config {params.cfg:q}"

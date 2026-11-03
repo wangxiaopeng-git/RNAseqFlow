@@ -198,8 +198,11 @@ def validate_config(config_path: str | Path, level_override: str | None = None) 
             raise ConfigError("At least one contrast is required at intermediate/advanced level")
         seen = set()
         for c in contrasts:
-            if not isinstance(c, dict) or not all(c.get(k) for k in ("name", "factor", "numerator", "denominator")):
+            if not isinstance(c, dict) or any(c.get(k) is None or str(c[k]).strip() == ''
+                                              for k in ("name", "factor", "numerator", "denominator")):
                 raise ConfigError("Each contrast needs name, factor, numerator, denominator")
+            for key in ('name', 'factor', 'numerator', 'denominator'):
+                c[key] = str(c[key])
             if not SAFE_SAMPLE.fullmatch(str(c["name"])) or c["name"] in seen:
                 raise ConfigError("Contrast names must be unique and safe for filenames")
             seen.add(c["name"])

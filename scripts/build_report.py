@@ -7,19 +7,19 @@ from urllib.parse import quote
 from rnaseqflow.provenance import artifact_path
 
 
-def render(summary: dict) -> str:
+def render(summary: dict, root: Path | None = None) -> str:
     title = html.escape(str(summary.get("project", "RNAseqFlow")))
     rows = []
     for sec in summary.get("sections", []):
         heading = html.escape(str(sec.get("title", "Section")))
         detail = html.escape(str(sec.get("detail", "")))
         for filename in sec.get("files", []):
-            artifact_path(Path.cwd(), str(filename))
+            artifact_path(root or Path.cwd(), str(filename))
         images = ''.join(
             f'<figure><img loading="lazy" src="../{html.escape(quote(str(p), safe="/"), quote=True)}" alt="{html.escape(str(p), quote=True)}"><figcaption>{html.escape(str(p))}</figcaption></figure>'
             for p in sec.get('files', []) if str(p).endswith(('.svg', '.png')))
         files = "".join(
-            f'<li><a href="../{html.escape(str(p), quote=True)}">{html.escape(str(p))}</a></li>'
+            f'<li><a href="../{html.escape(quote(str(p), safe="/"), quote=True)}">{html.escape(str(p))}</a></li>'
             for p in sec.get("files", [])
         )
         rows.append(f"<section><h2>{heading}</h2><p>{detail}</p>{images}<ul>{files}</ul></section>")
@@ -47,7 +47,7 @@ def main():
         summary = json.load(f)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(summary), encoding="utf-8")
+    out.write_text(render(summary, Path(args.summary).resolve().parent), encoding="utf-8")
 
 
 if __name__ == "__main__":

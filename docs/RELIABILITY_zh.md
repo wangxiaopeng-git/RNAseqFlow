@@ -11,6 +11,7 @@
 - WGCNA 调用期间加载其要求的相关函数，退出时恢复包搜索环境；固定随机种子并限制其内部并行。固定 soft power 仍需真实项目诊断，不表示自动选择了最佳网络。
 - `provenance.json` 记录输入/输出 SHA-256、字节数、有效配置、Python/工具版本和代码校验和；R sessionInfo 继续记录 R 包版本。FASTQ 输入的完整哈希会增加顺序读取开销。
 - 关键结果、分析脚本及其 R 辅助文件纳入 Snakemake 依赖。`rnaseqflow run` 在复用结果前验证所有报告引用的分析文件；缺失或内容改变会强制重跑分析。
+- R 每次在全新暂存目录中生成结果，成功后复制本次产物与摘要，避免阈值改变后把旧网络、旧富集图混入新报告；原目录中未引用的旧文件不会被主动删除。
 - `rnaseqflow verify --results /path/to/results/analysis` 独立检查报告引用的分析结果；退出码 0 表示检查通过，1 表示缺失或损坏。
 - HTML 报告直接显示 SVG/PNG 和上下调数量，并链接模型矩阵、配置和溯源记录。
 - 环境清单及 doctor 加入 svglite；测试保证源码和 wheel 内 assets 相同。
