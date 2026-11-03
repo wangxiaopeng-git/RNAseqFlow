@@ -1,0 +1,161 @@
+"""RNAseqFlow v0.1 Snakemake workflow. Use through `rnaseqflow run`."""
+import csv
+import shlex
+from pathlib import Path
+
+# Snakemake sets the working directory to the project root (CLI subprocess cwd).
+MODE = config["project"]["input_mode"]
+SHEET = config["project"]["samples"]
+ROOT = Path.cwd()
+ASSETS = Path(workflow.basedir).parent
+
+
+def absolute(path):
+    return str((ROOT / path).resolve()) if not Path(path).is_absolute() else str(Path(path))
+
+with open(absolute(SHEET), encoding="utf-8-sig", newline="") as fp:
+    ROWS = list(csv.DictReader(fp, delimiter="\t"))
+SAMPLES = {r["sample_id"]: r for r in ROWS}
+IDS = list(SAMPLES)
+PAIRED = MODE == "fastq" and bool(ROWS[0].get("fastq_2"))
+RUN_CFG = str(Path("results/run_config.yaml").resolve())
+QC_REPORT = "results/qc/multiqc_report.html"
+ANALYSIS_DONE = "results/analysis/summary.json"
+HTML_REPORT = "results/analysis/report/index.html"
+
+
+def quant_paths():
+    if MODE == "fastq":
+        return expand("results/quant/{sample}/quant.sf", sample=IDS)
+    if MODE == "salmon":
+        return [absolute(r["quant_dir"]) + "/quant.sf" for r in ROWS]
+    return [absolute(config["project"]["counts_matrix"])]
+
+
+def target_dependencies():
+    return [HTML_REPORT] + ([QC_REPORT] if MODE == "fastq" else [])
+
+rule all:
+    input: target_dependencies()
+
+if MODE == "fastq":
+    def fastq1(wc):
+        return absolute(SAMPLES[wc.sample]["fastq_1"])
+
+    def fastq2(wc):
+        return absolute(SAMPLES[wc.sample]["fastq_2"])
+
+    if PAIRED:
+        rule trim:
+            input:
+                r1=fastq1,
+                r2=fastq2
+            output:
+                r1="work/trim/{sample}_1.fq.gz",
+                r2="work/trim/{sample}_2.fq.gz",
+                js="results/qc/fastp/{sample}.json",
+                html="results/qc/fastp/{sample}.html"
+            threads: config["execution"].get("fastp_threads", 4)
+            resources: mem_mb=2000, concurrent_jobs=1
+            shell:
+                "mkdir -p work/trim results/qc/fastp && "
+                "fastp -i {input.r1:q} -I {input.r2:q} -o {output.r1:q} -O {output.r2:q} "
+                "-w {threads} -j {output.js:q} -h {output.html:q}"
+    else:
+        rule trim:
+            input: r1=fastq1
+            output:
+                r1="work/trim/{sample}_1.fq.gz",
+                js="results/qc/fastp/{sample}.json",
+                html="results/qc/fastp/{sample}.html"
+            threads: config["execution"].get("fastp_threads", 4)
+            resources: mem_mb=2000, concurrent_jobs=1
+            shell:
+                "mkdir -p work/trim results/qc/fastp && "
+                "fastp -i {input.r1:q} -o {output.r1:q} "
+                "-w {threads} -j {output.js:q} -h {output.html:q}"
+
+    rule raw_fastqc:
+        input:
+            lambda wc: [fastq1(wc)] + ([fastq2(wc)] if PAIRED else [])
+        output: "results/qc/fastqc/{sample}/.done"
+        params:
+            outdir=lambda wc: "results/qc/fastqc/" + wc.sample
+        threads: 2
+        resources: mem_mb=2000, concurrent_jobs=1
+        shell:
+            "mkdir -p {params.outdir:q} && fastqc -t {threads} --outdir {params.outdir:q} "
+            "{input:q} && touch {output:q}"
+
+    rule salmon_index:
+        input: absolute(config["project"]["transcript_fasta"])
+        output: directory("work/salmon_index")
+        threads: config["execution"].get("salmon_threads", 8)
+        params: k=config["execution"].get("salmon_k", 31)
+        resources: mem_mb=12000, concurrent_jobs=1
+        shell:
+            "salmon index -t {input:q} -i {output:q} -k {params.k} -p {threads}"
+
+    if PAIRED:
+        rule quantify:
+            input:
+                index="work/salmon_index",
+                r1="work/trim/{sample}_1.fq.gz",
+                r2="work/trim/{sample}_2.fq.gz"
+            output: "results/quant/{sample}/quant.sf"
+            threads: config["execution"].get("salmon_threads", 8)
+            params: out=lambda wc: "results/quant/" + wc.sample
+            resources: mem_mb=8000, concurrent_jobs=1
+            shell:
+                "salmon quant -i {input.index:q} -l A -1 {input.r1:q} -2 {input.r2:q} "
+                "-p {threads} --validateMappings --gcBias -o {params.out:q}"
+    else:
+        rule quantify:
+            input:
+                index="work/salmon_index",
+                r1="work/trim/{sample}_1.fq.gz"
+            output: "results/quant/{sample}/quant.sf"
+            threads: config["execution"].get("salmon_threads", 8)
+            params:
+                out=lambda wc: "results/quant/" + wc.sample,
+                mean=config["execution"].get("se_fld_mean", 200),
+                sd=config["execution"].get("se_fld_sd", 80)
+            resources: mem_mb=8000, concurrent_jobs=1
+            shell:
+                "salmon quant -i {input.index:q} -l A -r {input.r1:q} "
+                "--fldMean {params.mean} --fldSD {params.sd} -p {threads} --validateMappings "
+                "-o {params.out:q}"
+
+    rule multiqc:
+        input:
+            expand("results/qc/fastqc/{sample}/.done", sample=IDS),
+            expand("results/qc/fastp/{sample}.json", sample=IDS)
+        output: QC_REPORT
+        resources: mem_mb=2000, concurrent_jobs=1
+        shell:
+            "multiqc results/qc/fastqc results/qc/fastp --outdir results/qc "
+            "--filename multiqc_report.html --force"
+
+rule analyze:
+    input:
+        quant_paths(),
+        cfg=RUN_CFG,
+        samples=absolute(SHEET),
+        annotations=([absolute(config["project"]["tx2gene"])] if MODE in ("salmon", "fastq") else []),
+        pathways=([absolute(config["project"]["gene_sets_gmt"])] if config["project"].get("gene_sets_gmt") and
+                  config["analysis"].get("level") != "basic" and
+                  config["analysis"].get("enrichment", {}).get("enabled", False) else [])
+    output: ANALYSIS_DONE
+    params:
+        script=str(ASSETS / "scripts" / "run_analysis.R"),
+        out="results/analysis",
+        cfg=RUN_CFG
+    resources: mem_mb=16000, concurrent_jobs=1
+    shell: "Rscript {params.script:q} {params.cfg:q} {params.out:q}"
+
+rule report:
+    input: ANALYSIS_DONE
+    output: HTML_REPORT
+    params: script=str(ASSETS / "scripts" / "build_report.py"), cfg=RUN_CFG
+    resources: mem_mb=500, concurrent_jobs=1
+    shell: "python {params.script:q} --summary {input:q} --output {output:q} --config {params.cfg:q}"

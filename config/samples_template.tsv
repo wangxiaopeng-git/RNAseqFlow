@@ -1,0 +1,5 @@
+sample_id	condition	batch	fastq_1	fastq_2	quant_dir
+control_01	control	batch1	/path/control_01_R1.fastq.gz	/path/control_01_R2.fastq.gz	
+control_02	control	batch2	/path/control_02_R1.fastq.gz	/path/control_02_R2.fastq.gz	
+treated_01	treated	batch1	/path/treated_01_R1.fastq.gz	/path/treated_01_R2.fastq.gz	
+treated_02	treated	batch2	/path/treated_02_R1.fastq.gz	/path/treated_02_R2.fastq.gz	

@@ -1,0 +1,25 @@
+sample_id	condition	batch	fastq_1	fastq_2	quant_dir
+S01	control	B1			
+S02	control	B2			
+S03	control	B1			
+S04	control	B2			
+S05	control	B1			
+S06	control	B2			
+S07	control	B1			
+S08	control	B2			
+S09	control	B1			
+S10	control	B2			
+S11	control	B1			
+S12	control	B2			
+S13	treated	B1			
+S14	treated	B2			
+S15	treated	B1			
+S16	treated	B2			
+S17	treated	B1			
+S18	treated	B2			
+S19	treated	B1			
+S20	treated	B2			
+S21	treated	B1			
+S22	treated	B2			
+S23	treated	B1			
+S24	treated	B2			

@@ -1,0 +1,24 @@
+name: rnaseqflow
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python>=3.10,<3.14
+  - pip
+  - pyyaml>=6
+  - snakemake>=8,<10
+  - fastp
+  - fastqc
+  - multiqc
+  - salmon
+  - r-base>=4.3
+  - r-yaml
+  - r-jsonlite
+  - r-ggplot2
+  - r-pheatmap
+  - r-wgcna
+  - bioconductor-deseq2
+  - bioconductor-tximport
+  - bioconductor-fgsea
+  - pytest

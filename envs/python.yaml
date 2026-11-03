@@ -1,0 +1,12 @@
+name: rnaseqflow-python
+channels: [conda-forge, bioconda]
+dependencies:
+  - python>=3.10
+  - pyyaml>=6
+  - snakemake>=8,<10
+  - fastp
+  - fastqc
+  - multiqc
+  - salmon
+  - pytest
+  - pip

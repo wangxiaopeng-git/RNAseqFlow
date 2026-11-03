@@ -1,0 +1,12 @@
+name: rnaseqflow-r
+channels: [conda-forge, bioconda]
+dependencies:
+  - r-base>=4.3
+  - r-yaml
+  - r-jsonlite
+  - r-ggplot2
+  - r-pheatmap
+  - bioconductor-deseq2
+  - bioconductor-tximport
+  - bioconductor-fgsea
+  - r-wgcna

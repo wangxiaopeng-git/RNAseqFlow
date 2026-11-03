@@ -1,0 +1,40 @@
+project:
+  name: example_rnaseq
+  # counts: raw integer gene counts; salmon: existing quant.sf; fastq: Salmon from FASTQ
+  input_mode: counts
+  samples: demo/samples.tsv
+  counts_matrix: demo/gene_counts.tsv
+  transcript_fasta: null
+  tx2gene: null
+  # Optional GMT with gene IDs matching the count/tx2gene gene IDs
+  gene_sets_gmt: demo/gene_sets.gmt
+
+analysis:
+  level: intermediate  # basic | intermediate | advanced
+  design: "~ batch + condition"
+  contrasts:
+    - {name: treated_vs_control, factor: condition, numerator: treated, denominator: control}
+  min_count: 10
+  min_samples: 3
+  fdr: 0.05
+  log2fc: 1.0
+  top_heatmap_genes: 30
+  enrichment:
+    enabled: true
+    min_set_size: 5
+    max_set_size: 500
+  wgcna:
+    enabled: true
+    min_samples: 20
+    soft_power: 6
+    top_variable_genes: 5000
+    min_module_size: 20
+    traits: [condition]
+
+execution:
+  fastp_threads: 4
+  salmon_threads: 8
+  salmon_k: 31
+  # Fragment length distribution estimates are required for single-end Salmon reads
+  se_fld_mean: 200
+  se_fld_sd: 80
