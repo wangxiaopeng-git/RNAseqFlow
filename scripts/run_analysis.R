@@ -3,7 +3,11 @@
 args <- commandArgs(trailingOnly=TRUE)
 if (length(args) != 2) stop("Usage: Rscript run_analysis.R CONFIG.yaml OUTPUT_DIR")
 config_path <- normalizePath(args[1], mustWork=TRUE)
-out_dir <- args[2]
+output_target <- args[2]
+# All file inventories must describe this run, never conditional leftovers from
+# an earlier run. Stage in R's private temp directory; retain old, unreferenced
+# user outputs on disk instead of deleting the existing analysis directory.
+out_dir <- tempfile('rnaseqflow-analysis-')
 dir.create(out_dir, recursive=TRUE, showWarnings=FALSE)
 `%||%` <- function(a,b) if (is.null(a)) b else a
 cfg <- yaml::read_yaml(config_path)
@@ -19,19 +23,15 @@ if (!length(script_arg)) stop("Cannot determine the R script path")
 script_dir <- dirname(normalizePath(sub("^--file=", "", script_arg[1]), mustWork=TRUE))
 source(file.path(script_dir, "enrichment.R"))
 source(file.path(script_dir, "network.R"))
+source(file.path(script_dir, "analysis_helpers.R"))
 
-samples <- read.delim(resolve_path(cfg$project$samples), check.names=FALSE,
-                      stringsAsFactors=FALSE)
-if (anyDuplicated(samples$sample_id)) stop("Duplicate sample IDs")
-rownames(samples) <- samples$sample_id
-samples$sample_id <- as.character(samples$sample_id)
-for (name in setdiff(names(samples), c("sample_id","fastq_1","fastq_2","quant_dir"))) {
-  if (is.character(samples[[name]])) samples[[name]] <- factor(samples[[name]])
-}
+samples <- read_metadata(resolve_path(cfg$project$samples), cfg$analysis$covariate_types %||% list(),
+                         cfg$analysis$contrasts %||% list())
+if (level != 'basic' && grepl('[*:]', cfg$analysis$design)) stop('Interaction contrasts are not supported')
 
 if (mode == "counts") {
   tab <- read.delim(resolve_path(cfg$project$counts_matrix), check.names=FALSE,
-                    stringsAsFactors=FALSE)
+                    stringsAsFactors=FALSE, colClasses=c(gene_id='character'))
   if (anyDuplicated(tab$gene_id) || anyNA(tab$gene_id)) stop("Invalid gene IDs")
   count_data <- as.matrix(tab[, -1, drop=FALSE])
   rownames(count_data) <- tab$gene_id
@@ -41,8 +41,8 @@ if (mode == "counts") {
   if (anyNA(count_data) || any(count_data < 0)) stop("Counts must be non-negative integers")
   txi <- NULL
 } else {
-  txmap <- read.delim(resolve_path(cfg$project$tx2gene), check.names=FALSE, stringsAsFactors=FALSE)
-  txmap <- unique(txmap[,c("transcript_id","gene_id")])
+  txmap <- validate_txmap(read.delim(resolve_path(cfg$project$tx2gene), check.names=FALSE,
+                                   colClasses='character'))
   files <- if (mode == "fastq") file.path(root, "results", "quant", samples$sample_id, "quant.sf")
            else vapply(samples$quant_dir, function(p) file.path(resolve_path(p), "quant.sf"), character(1))
   names(files) <- samples$sample_id
@@ -58,6 +58,8 @@ if (level != "basic") {
   allcols <- all.vars(design)
   if (anyNA(samples[,allcols,drop=FALSE])) stop("Missing design metadata")
   x <- model.matrix(design, data=samples)
+  write.table(data.frame(sample_id=rownames(x),x,check.names=FALSE),
+              file=file.path(out_dir,'design_matrix.tsv'),sep='\t',quote=FALSE,row.names=FALSE)
   if (qr(x)$rank < ncol(x)) stop("Design matrix not full rank: check confounded factors/batches")
   if (nrow(x) <= ncol(x)) stop("Not enough residual degrees of freedom for design")
 }
@@ -136,6 +138,7 @@ sections <- list(list(title="Input and expression QC", detail="Check group balan
                       files=c("normalized_counts.tsv","transformed_expression.tsv","size_factors.tsv",
                               "sample_metadata.tsv",qc_files)))
 
+contrast_summaries <- list()
 if (level != "basic") {
   deg_files <- character()
   contrast_results <- list()
@@ -150,6 +153,15 @@ if (level != "basic") {
     res <- as.data.frame(result)
     res$gene_id <- rownames(res)
     res <- res[,c("gene_id","baseMean","log2FoldChange","lfcSE","stat","pvalue","padj")]
+    shrinkage <- cfg$analysis$lfc_shrinkage %||% 'none'
+    if (!shrinkage %in% c('none','normal')) stop('Unsupported LFC shrinkage')
+    if (shrinkage == 'normal') {
+      shrunk <- DESeq2::lfcShrink(dds, contrast=c(factor,ct$numerator,ct$denominator),
+                                res=result, type='normal')
+      res$log2FoldChange_shrunk <- shrunk$log2FoldChange
+      res$lfcSE_shrunk <- shrunk$lfcSE
+      # Inference and selection below deliberately use the original Wald result.
+    }
     alpha <- as.numeric(cfg$analysis$fdr)
     log2fc <- as.numeric(cfg$analysis$log2fc %||% 1)
     res$status <- "NS"
@@ -157,6 +169,11 @@ if (level != "basic") {
     res$status[!is.na(res$padj) & res$padj < alpha & res$log2FoldChange <= -log2fc] <- "DOWN"
     res <- res[order(res$padj, na.last=TRUE),]
     contrast_results[[ct$name]] <- res
+    contrast_summaries[[length(contrast_summaries)+1]] <- list(
+      name=ct$name, factor=factor, numerator=ct$numerator, denominator=ct$denominator,
+      up=sum(res$status == 'UP'), down=sum(res$status == 'DOWN'),
+      fdr_significant=sum(!is.na(res$padj) & res$padj < alpha),
+      lfc_shrinkage=shrinkage)
     write.table(res, file=file.path(cdir,"deg_all.tsv"),sep="\t", quote=FALSE,row.names=FALSE)
     write.table(subset(res, status != "NS"), file=file.path(cdir,"deg_selected.tsv"),
                 sep="\t",quote=FALSE,row.names=FALSE)
@@ -176,6 +193,12 @@ if (level != "basic") {
       grDevices::dev.off()
     }
     files <- paste0("contrasts/",ct$name,"/",c("deg_all.tsv","deg_selected.tsv","volcano.svg","ma.svg"))
+    if (shrinkage == 'normal') {
+      grDevices::svg(file.path(cdir,'ma_shrunk.svg'),width=8,height=6)
+      DESeq2::plotMA(shrunk,ylim=c(-6,6),main=paste(ct$name,'normal-shrunken LFC'))
+      grDevices::dev.off()
+      files <- c(files,paste0('contrasts/',ct$name,'/ma_shrunk.svg'))
+    }
     if (length(top) >= 2) files <- c(files,paste0("contrasts/",ct$name,"/top_deg_heatmap.svg"))
     if (isTRUE(cfg$analysis$enrichment$enabled)) {
       ep <- file.path(cdir,"enrichment")
@@ -230,6 +253,8 @@ if (level == "advanced" && isTRUE(cfg$analysis$wgcna$enabled)) {
       files=paste0("network/",network_files))
 }
 
+if (level != 'basic') sections[[length(sections)+1]] <- list(
+  title='Experimental design', detail=paste('Model:',cfg$analysis$design), files=list('design_matrix.tsv'))
 # Put generated session and configuration records into the manifest.
 sink(file.path(out_dir,"sessionInfo.txt"))
 print(sessionInfo())
@@ -237,7 +262,19 @@ sink()
 writeLines(yaml::as.yaml(cfg),file.path(out_dir,"effective_config.yaml"))
 sections[[length(sections)+1]] <- list(title="Reproducibility", detail="Exact run settings and R/Bioconductor session versions.",
                                       files=c("sessionInfo.txt","effective_config.yaml"))
+sections <- lapply(sections, function(section) {section$files <- as.list(section$files); section})
 summary_obj <- list(project=cfg$project$name %||% "RNAseqFlow", level=level,
-                    samples=nrow(samples), genes_after_filter=nrow(dds), sections=sections)
+                    samples=nrow(samples), genes_after_filter=nrow(dds), contrasts=contrast_summaries,
+                    design=deparse(design), sections=sections)
 jsonlite::write_json(summary_obj, path=file.path(out_dir,"summary.json"), auto_unbox=TRUE, pretty=TRUE)
+generated <- list.files(out_dir, recursive=TRUE)
+# Copy the completion summary last. Snakemake's final provenance step then
+# verifies all referenced files before publishing its integrity manifest.
+generated <- c(setdiff(generated,'summary.json'),'summary.json')
+for (relative in generated) {
+  target <- file.path(output_target,relative)
+  dir.create(dirname(target),recursive=TRUE,showWarnings=FALSE)
+  if (!file.copy(file.path(out_dir,relative),target,overwrite=TRUE)) stop(paste('Cannot publish',relative))
+}
+unlink(out_dir,recursive=TRUE)
 message(sprintf("RNAseqFlow completed: %d samples; %d genes retained; level=%s",nrow(samples),nrow(dds),level))

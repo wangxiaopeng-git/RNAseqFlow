@@ -17,6 +17,16 @@ run_network <- function(log_expression, samples, settings, outdir) {
     writeLines("SKIPPED: insufficient variable genes/samples after quality filtering", file.path(outdir,"status.txt"))
     return(invisible(FALSE))
   }
+  # WGCNA's internal do.call("cor", ...) requires its weighted correlation
+  # on the search path; namespace-only loading can resolve stats::cor instead.
+  attached <- 'package:WGCNA' %in% search()
+  if (!attached) {
+    previous_search <- search()
+    suppressPackageStartupMessages(library('WGCNA', character.only=TRUE))
+    on.exit(for (pkg in setdiff(search(), previous_search)) detach(pkg, character.only=TRUE), add=TRUE)
+  }
+  WGCNA::disableWGCNAThreads()
+  set.seed(as.integer(settings$seed %||% 20261102))
   modules <- WGCNA::blockwiseModules(mat, power=as.integer(settings$soft_power %||% 6),
                                     maxBlockSize=5000, networkType="signed", TOMType="signed",
                                     minModuleSize=min_module, mergeCutHeight=0.25,
@@ -48,7 +58,7 @@ run_network <- function(log_expression, samples, settings, outdir) {
   if (length(traitdata)) {
     tm <- as.data.frame(traitdata, check.names=FALSE)
     rownames(tm) <- phenotype$sample_id
-    cors <- cor(eig, tm, use="pairwise.complete.obs")
+    cors <- stats::cor(eig, tm, use="pairwise.complete.obs")
     pval <- WGCNA::corPvalueStudent(cors, nrow(eig))
     tab <- data.frame(module=rep(rownames(cors), times=ncol(cors)),
                       trait=rep(colnames(cors), each=nrow(cors)),
